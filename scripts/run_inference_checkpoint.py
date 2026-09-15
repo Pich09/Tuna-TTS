@@ -21,7 +21,7 @@ Run:
     python scripts/run_inference_checkpoint.py \
         --checkpoint checkpoints/latest.pt \
         --base-model-path checkpoints/openaudio-s1-mini \
-        --khmer-sp-model data/khmer-sp-8k.model \
+        --khmer-sp-model data/khmer_sp.model \
         --codec-checkpoint checkpoints/openaudio-s1-mini/codec.pth \
         --text "សួស្តី" --out-dir samples/EXP001 --device cuda:1
 """

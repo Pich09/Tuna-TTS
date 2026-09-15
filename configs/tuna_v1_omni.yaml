@@ -21,7 +21,7 @@ model:
 tokenizer:
   name: Panhapich/khmer-sp-8k
   vocab_size: 8000
-  khmer_sp_model_path: data/khmer-sp-8k.model
+  khmer_sp_model_path: data/khmer_sp.model
 
 dataset:
   name: omni_asr_kh_local

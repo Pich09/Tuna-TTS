@@ -10,7 +10,7 @@ Panhapich/khmer-tts-processed, instead of manifest.json + semantic_cache.
 Run:
     python scripts/test_model_protos.py \
         --base-model-path checkpoints/openaudio-s1-mini \
-        --khmer-sp-model data/khmer-sp-8k.model \
+        --khmer-sp-model data/khmer_sp.model \
         --proto-train-dir data/protos/train \
         --num-batches 5
 """

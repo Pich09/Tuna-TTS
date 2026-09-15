@@ -25,7 +25,7 @@ while true; do
       .venv-smoketest/bin/python scripts/run_inference_checkpoint.py \
         --checkpoint "$CHECKPOINT" \
         --base-model-path checkpoints/openaudio-s1-mini \
-        --khmer-sp-model data/khmer-sp-8k.model \
+        --khmer-sp-model data/khmer_sp.model \
         --codec-checkpoint checkpoints/openaudio-s1-mini/codec.pth \
         --out-dir "$OUT_DIR" --device cuda:1 --step "$step" \
         >> /tmp/watch_and_infer.log 2>&1

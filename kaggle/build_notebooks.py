@@ -130,10 +130,17 @@ only) for uploading checkpoints to `Panhapich/Tuna-TTS` -- that token needs
 into a cell; this reads it from the secret and also exports it as the
 `HF_TOKEN` environment variable so the training subprocess launched later
 inherits it the same way.
+
+Training data downloads one `ready_shard{i}of6.tar` at a time (PLAN.md
+section 21.5), not the whole `Panhapich/khmer-tts-processed` repo: that
+repo also holds a `shard{i}of6.tar` (raw audio, ~3.6GB each) family
+alongside the `ready_*` one (pre-tokenized `.protos`, ~34MB each) --
+`snapshot_download` can't tell them apart and would pull both, ~100x more
+than `data/proto_dataset.py` actually reads.
 ''')
 
 DOWNLOAD_CELL = '''\
-import os
+import os, tarfile
 from huggingface_hub import snapshot_download, hf_hub_download
 
 try:
@@ -149,13 +156,36 @@ ckpt_dir = f"{REPO_DIR}/checkpoints/openaudio-s1-mini"
 snapshot_download(repo_id="fishaudio/openaudio-s1-mini", local_dir=ckpt_dir, token=hf_token)
 print(f"Base model -> {ckpt_dir}")
 
-hf_hub_download(repo_id="Panhapich/khmer-sp-8k", filename="khmer-sp-8k.model",
+hf_hub_download(repo_id="Panhapich/khmer-sp-8k", filename="khmer_sp.model",
                  local_dir=f"{REPO_DIR}/data", token=hf_token)
-print("Khmer tokenizer -> data/khmer-sp-8k.model")
+print("Khmer tokenizer -> data/khmer_sp.model")
 
-snapshot_download(repo_id="Panhapich/khmer-tts-processed", repo_type="dataset",
-                   local_dir=f"{REPO_DIR}/data/protos", token=hf_token)
-print(f"Training data -> {REPO_DIR}/data/protos")
+# Only the small pre-tokenized "ready_*" shards, one at a time -- see the
+# markdown cell above for why NOT snapshot_download(the whole repo).
+DATASET_REPO = "Panhapich/khmer-tts-processed"
+NUM_SHARDS = 6
+protos_root = f"{REPO_DIR}/data/protos"
+
+for i in range(NUM_SHARDS):
+    fname = f"processed/khmer_base__khmer_base_v1__ready_shard{i}of6.tar"
+    print(f"Downloading train shard {i}/{NUM_SHARDS - 1}: {fname}")
+    tar_path = hf_hub_download(repo_id=DATASET_REPO, repo_type="dataset", filename=fname, token=hf_token)
+    extract_dir = f"{protos_root}/train/shard{i}_protos"
+    os.makedirs(extract_dir, exist_ok=True)
+    with tarfile.open(tar_path) as tf:
+        tf.extractall(extract_dir)
+    print(f"  -> extracted to {extract_dir}")
+
+val_fname = "processed/khmer_base__khmer_base_v1__ready_val.tar"
+print(f"Downloading validation shard: {val_fname}")
+val_tar_path = hf_hub_download(repo_id=DATASET_REPO, repo_type="dataset", filename=val_fname, token=hf_token)
+val_extract_dir = f"{protos_root}/validation"
+os.makedirs(val_extract_dir, exist_ok=True)
+with tarfile.open(val_tar_path) as tf:
+    tf.extractall(val_extract_dir)
+print(f"  -> extracted to {val_extract_dir}")
+
+print(f"Training data -> {protos_root}")
 
 # fish_speech.models.dac.inference does pyrootutils.setup_root(indicator=".project-root")
 # at import time, which fails when fish-speech is pip-installed rather than a
@@ -240,7 +270,7 @@ import subprocess, sys
 result = subprocess.run(
     [sys.executable, "scripts/test_model_protos.py",
      "--base-model-path", "checkpoints/openaudio-s1-mini",
-     "--khmer-sp-model", "data/khmer-sp-8k.model",
+     "--khmer-sp-model", "data/khmer_sp.model",
      "--proto-train-dir", "data/protos/train",
      "--num-batches", "5", "--batch-size", "1"],
     cwd=REPO_DIR, capture_output=True, text=True,
@@ -304,11 +334,9 @@ write access to that repo via **Add-ons -> Secrets**.
 quota is weekly (~30h). This will NOT finish EXP001's full 40,000 steps in
 one session. Checkpoints save under `/kaggle/working/Tuna-tts/checkpoints/`
 every 100 steps; when the session ends, commit the notebook (Save Version)
-so `/kaggle/working` is preserved as that version's Output, then in the
-next session's setup, copy `latest.pt`/`metadata.json` from the previous
-version's output into `checkpoints/` before re-running this notebook --
-`training/trainer.py`'s existing resume logic picks up from there
-automatically (same mechanism verified locally after a host reboot).
+so `/kaggle/working` is preserved as that version's Output. Step 6 below
+then auto-resumes from the Hub (or from that Output, if attached as an
+input) the next time this notebook runs -- nothing to copy by hand.
 '''),
     md("## 0. Config"),
     code(CODE_DATASET_SLUG_CELL),
@@ -323,33 +351,61 @@ assert n >= 2, "Expected 2 GPUs -- check Notebook settings -> Accelerator -> GPU
     DOWNLOAD_CELL_MD, code(DOWNLOAD_CELL),
     FIND_PROTOS_CELL_MD, code(FIND_PROTOS_CELL),
     md('''\
-## 6. Resuming from a previous session (skip if this is a fresh run)
+## 6. Resuming from a previous session (automatic -- no-op on a fresh run)
 
-Two ways to get a previous checkpoint back before launching training --
-pick whichever is available:
+Runs every time, fresh run or not. It tries, in order:
 
-- **From the Hub** (works even if you forgot to Save Version last time --
-  checkpoints upload to `Panhapich/Tuna-TTS` automatically per step 8):
-  uncomment the `hf_hub_download` cell below.
-- **From a Kaggle output dataset**: attach the previous session's Output
-  as an additional input dataset, then uncomment the `shutil.copy` cell.
+1. **The Hub** -- `latest.pt`/`metadata.json` from `Panhapich/Tuna-TTS`
+   (works even if you forgot to Save Version last time, since checkpoints
+   upload there automatically per step 8).
+2. **A Kaggle input dataset** -- any attached input containing a
+   `Tuna-tts/checkpoints` (or `checkpoints`) folder with those same two
+   files, e.g. a previous session's Output added as an additional input.
+
+If neither is found (a genuinely fresh run, or the Hub repo/files don't
+exist yet), it just prints that and moves on -- `training/trainer.py`'s
+own `load_for_resume` (see `training/checkpoint.py`) already no-ops the
+same way when `checkpoints/` is empty, so there's nothing to uncomment or
+edit either way.
 '''),
     code('''\
-# from huggingface_hub import hf_hub_download
-# import os
-# os.makedirs(f"{REPO_DIR}/checkpoints", exist_ok=True)
-# for fname in ["latest.pt", "metadata.json"]:
-#     hf_hub_download(repo_id="Panhapich/Tuna-TTS", filename=fname,
-#                      local_dir=f"{REPO_DIR}/checkpoints", token=hf_token)
-# print("Downloaded previous checkpoint from the Hub -- training will resume from its global_step.")
-'''),
-    code('''\
-# import shutil, os
-# PREV_OUTPUT_DIR = "/kaggle/input/<previous-session-output-slug>/Tuna-tts/checkpoints"
-# os.makedirs(f"{REPO_DIR}/checkpoints", exist_ok=True)
-# for fname in ["latest.pt", "metadata.json"]:
-#     shutil.copy(f"{PREV_OUTPUT_DIR}/{fname}", f"{REPO_DIR}/checkpoints/{fname}")
-# print("Copied previous checkpoint -- training will resume from its global_step.")
+import glob, os, shutil
+
+REQUIRED = ["latest.pt", "metadata.json"]
+ckpt_out_dir = f"{REPO_DIR}/checkpoints"
+os.makedirs(ckpt_out_dir, exist_ok=True)
+resumed_from = None
+
+# 1. Try the Hub (token is optional -- also works for a public repo).
+try:
+    from huggingface_hub import hf_hub_download
+    tmp_paths = {
+        fname: hf_hub_download(repo_id="Panhapich/Tuna-TTS", filename=fname, token=hf_token)
+        for fname in REQUIRED
+    }
+    for fname, tmp_path in tmp_paths.items():
+        shutil.copy(tmp_path, f"{ckpt_out_dir}/{fname}")
+    resumed_from = "the Hub (Panhapich/Tuna-TTS)"
+except Exception as e:
+    print(f"No usable checkpoint on the Hub yet ({type(e).__name__}) -- trying Kaggle inputs next.")
+
+# 2. Try any attached Kaggle input dataset (e.g. a previous session's Output).
+if resumed_from is None:
+    candidates = [
+        d for pattern in ("/kaggle/input/*/Tuna-tts/checkpoints", "/kaggle/input/*/checkpoints")
+        for d in glob.glob(pattern)
+        if all(os.path.isfile(f"{d}/{fname}") for fname in REQUIRED)
+    ]
+    if candidates:
+        src_dir = candidates[0]
+        for fname in REQUIRED:
+            shutil.copy(f"{src_dir}/{fname}", f"{ckpt_out_dir}/{fname}")
+        resumed_from = src_dir
+
+if resumed_from:
+    print(f"Found a previous checkpoint via {resumed_from} -- training will resume from its global_step.")
+else:
+    print("No previous checkpoint found anywhere -- this is a fresh run, starting from step 0.")
 '''),
     md('''\
 ## 7. Mandatory smoke test -- do not skip
