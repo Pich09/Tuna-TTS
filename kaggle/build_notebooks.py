@@ -94,10 +94,21 @@ here would be slow and is unnecessary). Everything else installs from
 (`d3df505`) this codebase's tokenizer/model code was verified against --
 main HEAD is NOT compatible with openaudio-s1-mini (see requirements.txt's
 comments). Requires this notebook's **Internet** toggle to be ON.
+
+fish-speech pulls in `pyaudio` (for its WebUI's mic input, which this
+training pipeline never uses) as a hard dependency. `pyaudio` has no
+prebuilt wheel for Kaggle's Python version, so pip builds it from source,
+which needs the `portaudio.h` system header -- not present on the base
+image. The apt-get below installs it before pip runs.
 ''')
 
 INSTALL_CELL = '''\
 import subprocess, sys
+
+# portaudio.h header, needed to build the pyaudio wheel that fish-speech
+# pulls in transitively (see markdown cell above).
+subprocess.run(["apt-get", "-qq", "update"], check=True)
+subprocess.run(["apt-get", "-qq", "install", "-y", "portaudio19-dev"], check=True)
 
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", f"{REPO_DIR}/requirements.txt"], check=True)
 # protobuf resolver conflict (descript-audiotools wants <3.20, fish-speech's
