@@ -1,0 +1,6 @@
+# EXP003 - Aggressive (PLAN.md section 17/40)
+extends: ../tuna_v1.yaml
+experiment_id: EXP003
+learning_rate:
+  lora: { warmup_start: 1e-4, peak: 2e-4, decay_end: 2e-5 }
+  khmer_embedding: { warmup_start: 1e-4, peak: 2e-4, decay_end: 2e-5 }

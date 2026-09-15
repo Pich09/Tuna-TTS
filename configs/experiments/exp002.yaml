@@ -1,0 +1,6 @@
+# EXP002 - Conservative (PLAN.md section 17/40)
+extends: ../tuna_v1.yaml
+experiment_id: EXP002
+learning_rate:
+  lora: { warmup_start: 2.5e-5, peak: 5e-5, decay_end: 5e-6 }
+  khmer_embedding: { warmup_start: 5e-5, peak: 1e-4, decay_end: 1e-5 }

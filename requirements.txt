@@ -1,0 +1,34 @@
+# Core
+torch>=2.1
+pyyaml
+
+# Base model + LoRA (PLAN.md section 61: reuse fish-speech's own implementation)
+#
+# Pinned to commit d3df505 (the last pre-"S2 beta" commit) deliberately --
+# main HEAD's FishTokenizer was rewritten to require transformers.AutoTokenizer
+# + HF tokenizer_config.json files that openaudio-s1-mini's repo does not
+# ship (verified via HfApi.list_repo_files). d3df505's FishTokenizer loads
+# openaudio-s1-mini/tokenizer.tiktoken directly via raw tiktoken, which is
+# the API this project's tokenizer/tuna_tokenizer.py is written against.
+fish-speech @ git+https://github.com/fishaudio/fish-speech.git@d3df50503b36314a964f66cac1af1e19e95bcfa3
+loralib
+# d3df505's pyproject.toml hard-pins numpy<=1.26.4.
+numpy<=1.26.4
+# descript-audiotools (a fish-speech dependency) wants protobuf<3.20, but
+# fish-speech's generated *_pb2.py needs >=3.20 (uses the `builder` module).
+# Let the initial resolve land on the old pin, then upgrade separately:
+#   pip install --upgrade "protobuf>=3.20,<6"
+
+# Khmer tokenizer (Panhapich/khmer-sp-8k is a SentencePiece model)
+sentencepiece
+
+# Base S1-mini tokenizer plumbing (fish_speech.tokenizer.FishTokenizer wraps this)
+transformers
+tiktoken
+
+# Checkpoint storage on Hugging Face (PLAN.md sections 29-37)
+huggingface_hub
+
+# Audio I/O for the semantic-cache precompute step (section 21.2)
+soundfile
+librosa

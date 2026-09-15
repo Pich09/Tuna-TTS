@@ -1,0 +1,47 @@
+# EXP001 pilot (PLAN.md "Phase 4 - Pilot Training"): same architecture/LR
+# schedule as exp001.yaml, but a short run to sanity-check the whole
+# training loop (checkpointing, validation, LR schedule) end-to-end on
+# real data before committing to the full 40,000-step EXP001 run.
+#
+# NOTE on config merging (scripts/train.py's load_config): a top-level key
+# present in this file REPLACES the base config's key entirely (only
+# "learning_rate" gets a one-level merge) -- so "training" and "checkpoint"
+# below are given in full, not as partial overrides.
+extends: ../tuna_v1.yaml
+experiment_id: EXP001
+learning_rate:
+  lora: { warmup_start: 5e-5, peak: 1e-4, decay_end: 1e-5 }
+  khmer_embedding: { warmup_start: 1e-4, peak: 2e-4, decay_end: 2e-5 }
+
+# Repeats tuna_v1.yaml's dataset block (see NOTE above -- this key fully
+# replaces, not merges) plus proto_max_length: the 16GB GPUs available in
+# this environment OOM on the full-vocab (~163,776) cross-entropy logits
+# tensor at build_proto_dataset's normal default (max_length=400, ~5,000-
+# 6,500 packed tokens/item -- ~4.3GB for that tensor alone at batch=1).
+# 150 (-> ~7 sentences/item, ~2,000 tokens measured) leaves comfortable
+# headroom for weights/gradients/optimizer state on top.
+dataset:
+  name: Panhapich/khmer-tts-processed
+  format: protos
+  proto_train_dir: data/protos/train
+  proto_val_dir: data/protos/validation
+  text_is_pre_normalized: true
+  proto_max_length: 150
+
+training:
+  max_steps: 20
+  validation_interval: 10
+  checkpoint_interval: 10
+  gradient_clip_norm: 1.0
+  seed: 42
+  per_gpu_batch_size: 1
+  gradient_accumulation: 4
+  mixed_precision: bf16
+  max_val_batches: 5  # small on purpose for a quick pilot; see run_validation's docstring
+
+checkpoint:
+  directory: checkpoints/pilot_exp001/
+  latest: latest.pt
+  best: best.pt
+  metadata: metadata.json
+  hf_repo: Panhapich/Tuna-TTS

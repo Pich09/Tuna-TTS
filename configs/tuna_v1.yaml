@@ -1,0 +1,56 @@
+# Base configuration (PLAN.md section 57). Experiment-specific overrides
+# live in configs/experiments/*.yaml.
+
+project:
+  name: Tuna-TTS
+  architecture_version: tuna-v1
+
+model:
+  # Local checkpoint directory, not an HF repo id: verified from source
+  # (fish_speech.models.text2semantic.llama.BaseTransformer.from_pretrained
+  # / BaseModelArgs.from_pretrained) that fish-speech does Path(path) and
+  # opens path/config.json directly -- it does not resolve HF Hub repo ids
+  # or auto-download. checkpoints/openaudio-s1-mini/ is the actual local
+  # download of fishaudio/openaudio-s1-mini.
+  base_model: checkpoints/openaudio-s1-mini
+
+tokenizer:
+  name: Panhapich/khmer-sp-8k
+  vocab_size: 8000
+  khmer_sp_model_path: data/khmer-sp-8k.model # downloaded from the HF repo above
+
+dataset:
+  name: Panhapich/khmer-tts-processed
+  format: protos # section 21.5: this dataset ships pre-packaged .protos (text + precomputed semantic tokens) -- no codec precompute needed
+  proto_train_dir: data/protos/train
+  proto_val_dir: data/protos/validation
+  text_is_pre_normalized: true # section 21.1: this dataset ships already text-normalized; don't re-run data/text_normalize.py on it
+
+training:
+  max_steps: 40000
+  validation_interval: 1000
+  checkpoint_interval: 200
+  gradient_clip_norm: 1.0
+  seed: 42
+  per_gpu_batch_size: 2
+  gradient_accumulation: 8
+  mixed_precision: bf16 # bf16 | fp16 | none (section 19)
+
+optimizer:
+  name: AdamW
+  weight_decay: 0.1
+  betas: [0.9, 0.95]
+  eps: 1e-5
+
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.01
+  target_modules: [attention, mlp] # excludes embeddings/output, see PLAN.md section 61.4
+
+checkpoint:
+  directory: checkpoints/
+  latest: latest.pt
+  best: best.pt
+  metadata: metadata.json
+  hf_repo: Panhapich/Tuna-TTS

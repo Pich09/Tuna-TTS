@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+checkpoints/
+data/manifest.json
+data/manifest_omni.json
+data/protos/
+data/semantic_cache/
+*.pt
+*.pth
+
+# Local venvs / envs
+.venv*/
+venv*/
+
+# Generated at runtime, not source
+samples/
+progress.log
+kaggle/tuna-tts-code.zip
+*.log

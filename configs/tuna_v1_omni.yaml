@@ -1,0 +1,60 @@
+# Variant of tuna_v1.yaml using the local omni_asr_kh corpus instead of
+# downloading Panhapich/khmer-tts-processed (PLAN.md section 21.4).
+#
+# Built via:
+#   python scripts/convert_omni_asr_manifest.py --omni-root /home/helpdesk/Desktop/omni_asr_kh --out data/manifest_omni.json
+#   (then filtered to data/manifest.json -- see PLAN.md section 21.4 for the
+#   filter step: excludes 141 clips >30s and 84 texts >500 chars)
+#
+# 468,081 usable clips, ~1,088.5 hours, 16kHz source audio (resampled by
+# the codec during precompute regardless -- section 21.2).
+
+project:
+  name: Tuna-TTS
+  architecture_version: tuna-v1
+
+model:
+  # Local checkpoint directory, not an HF repo id -- see configs/tuna_v1.yaml
+  # for why (fish-speech's from_pretrained does not resolve HF repo ids).
+  base_model: checkpoints/openaudio-s1-mini
+
+tokenizer:
+  name: Panhapich/khmer-sp-8k
+  vocab_size: 8000
+  khmer_sp_model_path: data/khmer-sp-8k.model
+
+dataset:
+  name: omni_asr_kh_local
+  manifest_path: data/manifest.json
+  semantic_cache_dir: data/semantic_cache_omni
+  codec_revision: v1
+  text_is_pre_normalized: false # section 21.4: omni_asr_kh transcripts are raw ASR text, not pre-normalized
+
+training:
+  max_steps: 40000
+  validation_interval: 1000
+  checkpoint_interval: 200
+  gradient_clip_norm: 1.0
+  seed: 42
+  per_gpu_batch_size: 2
+  gradient_accumulation: 8
+  mixed_precision: bf16
+
+optimizer:
+  name: AdamW
+  weight_decay: 0.1
+  betas: [0.9, 0.95]
+  eps: 1e-5
+
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.01
+  target_modules: [attention, mlp]
+
+checkpoint:
+  directory: checkpoints/
+  latest: latest.pt
+  best: best.pt
+  metadata: metadata.json
+  hf_repo: Panhapich/Tuna-TTS

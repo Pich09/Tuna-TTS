@@ -1,0 +1,6 @@
+# EXP001 - Baseline, using the local omni_asr_kh corpus (PLAN.md section 21.4)
+extends: ../tuna_v1_omni.yaml
+experiment_id: EXP001
+learning_rate:
+  lora: { warmup_start: 5e-5, peak: 1e-4, decay_end: 1e-5 }
+  khmer_embedding: { warmup_start: 1e-4, peak: 2e-4, decay_end: 2e-5 }
