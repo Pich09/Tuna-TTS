@@ -32,11 +32,8 @@ def code(src):
 
 
 CODE_DATASET_SLUG_CELL = '''\
-# EDIT THIS: the Kaggle Dataset slug you uploaded kaggle/tuna-tts-code.zip as
-# (Kaggle Datasets -> your dataset -> copy the "usage" slug, e.g.
-# "your-username/tuna-tts-code"). Kaggle mounts it read-only at
-# /kaggle/input/<slug-basename>/.
-CODE_DATASET_SLUG = "tuna-tts-code"  # <-- change if you named it differently
+# EDIT THIS if you fork/rename the repo.
+GITHUB_REPO_URL = "https://github.com/Pich09/Tuna-TTS.git"
 
 REPO_DIR = "/kaggle/working/Tuna-tts"
 '''
@@ -56,24 +53,36 @@ print(subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=c
 '''
 
 COPY_CODE_CELL_MD = md('''\
-## 2. Copy the project code into a writable directory
+## 2. Clone the project code
 
-`/kaggle/input/...` is read-only, but training writes checkpoints/logs next
-to the code, so it's copied into `/kaggle/working/Tuna-tts` first.
+Cloned straight from GitHub into `/kaggle/working/Tuna-tts` (a writable
+directory -- training writes checkpoints/logs next to the code). No
+dataset upload needed for code changes; just push to GitHub and re-run
+this cell to pick them up.
+
+If the repo is private, add a Kaggle Secret named `GITHUB_TOKEN` (a
+fine-grained PAT with read-only access to just this repo) -- the cell
+below picks it up automatically and never prints or hardcodes it. Public
+repo: leave the secret unset, nothing else to do.
 ''')
 
 COPY_CODE_CELL = '''\
-import shutil, os
+import shutil, subprocess, os
 
-src = f"/kaggle/input/{CODE_DATASET_SLUG}"
-assert os.path.isdir(src), (
-    f"{src} not found -- did you attach the tuna-tts-code dataset to this "
-    f"notebook (Add Input, right sidebar) and set CODE_DATASET_SLUG correctly?"
-)
+try:
+    from kaggle_secrets import UserSecretsClient
+    github_token = UserSecretsClient().get_secret("GITHUB_TOKEN")
+except Exception:
+    github_token = None  # fine for a public repo
+
+clone_url = GITHUB_REPO_URL
+if github_token:
+    clone_url = GITHUB_REPO_URL.replace("https://", f"https://{github_token}@")
+
 if os.path.isdir(REPO_DIR):
     shutil.rmtree(REPO_DIR)
-shutil.copytree(src, REPO_DIR)
-print(f"Copied code to {REPO_DIR}")
+subprocess.run(["git", "clone", "--depth", "1", clone_url, REPO_DIR], check=True)
+print(f"Cloned {GITHUB_REPO_URL} -> {REPO_DIR}")
 '''
 
 INSTALL_CELL_MD = md('''\
@@ -102,9 +111,14 @@ DOWNLOAD_CELL_MD = md('''\
 ## 4. Download the base model, Khmer tokenizer, and training data
 
 Downloaded here (on Kaggle's fast network) rather than uploaded from a slow
-home connection. If any of these repos are gated/private on Hugging Face,
-add an `HF_TOKEN` secret via the notebook's **Add-ons -> Secrets** menu --
-never paste a token directly into a cell.
+home connection. Add an `HF_TOKEN` secret via the notebook's **Add-ons ->
+Secrets** menu -- needed if `fishaudio/openaudio-s1-mini` or
+`Panhapich/khmer-tts-processed` are gated/private, AND (training notebook
+only) for uploading checkpoints to `Panhapich/Tuna-TTS` -- that token needs
+**write** access to that repo specifically. Never paste a token directly
+into a cell; this reads it from the secret and also exports it as the
+`HF_TOKEN` environment variable so the training subprocess launched later
+inherits it the same way.
 ''')
 
 DOWNLOAD_CELL = '''\
@@ -116,6 +130,9 @@ try:
     hf_token = UserSecretsClient().get_secret("HF_TOKEN")
 except Exception:
     hf_token = None  # fine if the repos are public and no secret is set
+
+if hf_token:
+    os.environ["HF_TOKEN"] = hf_token  # inherited by the torchrun subprocess later
 
 ckpt_dir = f"{REPO_DIR}/checkpoints/openaudio-s1-mini"
 snapshot_download(repo_id="fishaudio/openaudio-s1-mini", local_dir=ckpt_dir, token=hf_token)
@@ -233,10 +250,9 @@ Run this notebook FIRST, top to bottom, before the training notebook. It:
 3. Runs the PLAN.md section 21.5 codec spot-check and a real
    forward+backward smoke test on the actual model/data/checkpoint path.
 
-**Before running:** attach the `tuna-tts-code` dataset (built by
-`kaggle/package_code.sh` and uploaded once) via **Add Input** in the right
-sidebar, and turn **Internet** ON in notebook settings. A single T4 GPU is
-enough for this notebook (the 2-GPU run is in the training notebook).
+**Before running:** turn **Internet** ON in notebook settings (needed to
+clone the repo and download from Hugging Face). A single T4 GPU is enough
+for this notebook (the 2-GPU run is in the training notebook).
 
 If every cell below prints PASS, go run `Tuna_TTS_Kaggle_Train.ipynb`.
 '''),
@@ -268,8 +284,10 @@ here instead of burning GPU-hours -- but that inline check is not a
 substitute for actually reading the smoke-test notebook's full output at
 least once.
 
-**Before running:** attach the `tuna-tts-code` dataset, set the
-accelerator to **GPU T4 x2**, and turn **Internet** ON.
+**Before running:** set the accelerator to **GPU T4 x2** and turn
+**Internet** ON. To have checkpoints uploaded to `Panhapich/Tuna-TTS`
+automatically (recommended -- see step 8), add an `HF_TOKEN` secret with
+write access to that repo via **Add-ons -> Secrets**.
 
 **Session limits:** Kaggle notebook sessions are capped (~9-12h) and GPU
 quota is weekly (~30h). This will NOT finish EXP001's full 40,000 steps in
@@ -296,8 +314,23 @@ assert n >= 2, "Expected 2 GPUs -- check Notebook settings -> Accelerator -> GPU
     md('''\
 ## 6. Resuming from a previous session (skip if this is a fresh run)
 
-If you committed a previous session's output, attach THAT notebook version
-as an additional input dataset, then uncomment and edit the paths below.
+Two ways to get a previous checkpoint back before launching training --
+pick whichever is available:
+
+- **From the Hub** (works even if you forgot to Save Version last time --
+  checkpoints upload to `Panhapich/Tuna-TTS` automatically per step 8):
+  uncomment the `hf_hub_download` cell below.
+- **From a Kaggle output dataset**: attach the previous session's Output
+  as an additional input dataset, then uncomment the `shutil.copy` cell.
+'''),
+    code('''\
+# from huggingface_hub import hf_hub_download
+# import os
+# os.makedirs(f"{REPO_DIR}/checkpoints", exist_ok=True)
+# for fname in ["latest.pt", "metadata.json"]:
+#     hf_hub_download(repo_id="Panhapich/Tuna-TTS", filename=fname,
+#                      local_dir=f"{REPO_DIR}/checkpoints", token=hf_token)
+# print("Downloaded previous checkpoint from the Hub -- training will resume from its global_step.")
 '''),
     code('''\
 # import shutil, os
@@ -323,6 +356,17 @@ training cell below is allowed to run.
 Runs in the background (so this cell returns immediately) via
 `torchrun --standalone --nproc_per_node=2`, matching
 `scripts/train_ddp.sh`. Output goes to `/kaggle/working/train.log`.
+
+`configs/experiments/exp001_kaggle.yaml` has `checkpoint.upload_to_hub:
+true`, so every checkpoint saved locally (every 100 steps) is also pushed
+to `Panhapich/Tuna-TTS` on the Hub in a background thread inside the
+training process -- this survives even if you forget to Save Version
+before a Kaggle session ends. Uploads run one at a time; if a checkpoint's
+upload is still in flight when the next one is due, that one is skipped
+(logged as `[hub_upload] skipped ...`) rather than queued -- the next
+checkpoint supersedes it anyway. Needs the `HF_TOKEN` secret set up in
+step 4 with **write** access to `Panhapich/Tuna-TTS`; without it, uploads
+fail loudly in `train.log` but training itself keeps running unaffected.
 '''),
     code('''\
 import subprocess, os

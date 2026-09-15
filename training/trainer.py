@@ -76,6 +76,9 @@ class TrainingConfig:
     max_seq_len: int = 8192  # backstop truncation in _protos_collate; matches S1-mini's own max_seq_len.
     max_val_batches: int = 50  # required cap: the protos val_loader is an infinite stream, see run_validation.
     log_interval: int = 1  # print a progress line every this many optimizer steps.
+    hf_repo: Optional[str] = None  # e.g. "Panhapich/Tuna-TTS" -- configs/*.yaml's checkpoint.hf_repo.
+    hf_upload_enabled: bool = False  # opt-in per config (checkpoint.upload_to_hub): see training/hub_upload.py.
+    hf_token: Optional[str] = None  # prefer HF_TOKEN env var / cached login over this; see training/hub_upload.py.
 
 
 def set_seed(seed: int) -> None:
@@ -306,6 +309,15 @@ def run_training(config: TrainingConfig, tokenizer) -> None:
         },
     ) if env.is_main_process else None
 
+    # Only rank 0 uploads (same reasoning as checkpoint_manager above); a
+    # missing hf_repo or upload opt-out just leaves this None, and every
+    # call site below is already a no-op guarded on that.
+    hub_uploader = None
+    if env.is_main_process and config.hf_upload_enabled and config.hf_repo:
+        from training.hub_upload import HubUploader
+
+        hub_uploader = HubUploader(config.hf_repo, token=config.hf_token)
+
     global_step = 0
     epoch = 0
     # All ranks must load the same resumed state, but only rank 0 reads
@@ -433,6 +445,16 @@ def run_training(config: TrainingConfig, tokenizer) -> None:
                 )
                 checkpoint_manager.save_latest(state)
                 checkpoint_manager.write_metadata(global_step, epoch, config.experiment_id)
+                if hub_uploader is not None:
+                    started = hub_uploader.maybe_upload_async(
+                        {
+                            checkpoint_manager.paths.latest_name: checkpoint_manager.paths.latest,
+                            checkpoint_manager.paths.metadata_name: checkpoint_manager.paths.metadata,
+                        },
+                        commit_message=f"step {global_step}",
+                    )
+                    if not started:
+                        print(f"[hub_upload] skipped step {global_step}: previous upload still in progress", flush=True)
 
             if should_validate_step:
                 # Every rank must call this: reduce_mean below is a collective
@@ -446,6 +468,13 @@ def run_training(config: TrainingConfig, tokenizer) -> None:
                         global_step, epoch, config.experiment_id, extra={"last_val_loss": val_loss}
                     )
                     print(f"step {global_step}: val_loss={val_loss:.4f} improved={improved}")
+                    if improved and hub_uploader is not None:
+                        started = hub_uploader.maybe_upload_async(
+                            {checkpoint_manager.paths.best_name: checkpoint_manager.paths.best},
+                            commit_message=f"step {global_step}: val_loss={val_loss:.4f} (best)",
+                        )
+                        if not started:
+                            print(f"[hub_upload] skipped best.pt at step {global_step}: previous upload still in progress", flush=True)
                 model.train()
 
             if global_step >= config.max_steps:

@@ -38,3 +38,19 @@ training:
   mixed_precision: bf16
   max_val_batches: 50
   log_interval: 20
+
+# Kaggle sessions are wiped when they end (see kaggle/README.md) -- upload
+# every checkpoint straight to the Hub instead of relying only on
+# /kaggle/working surviving via Save Version. checkpoint.hf_repo is
+# inherited from tuna_v1.yaml (Panhapich/Tuna-TTS); upload_to_hub is the
+# opt-in switch training/trainer.py checks (off by default, including in
+# exp001.yaml, so local runs never upload unless asked). Needs an HF_TOKEN
+# env var with write access to that repo -- see kaggle/README.md for how
+# the notebook supplies it from a Kaggle Secret, never hardcoded here.
+checkpoint:
+  directory: checkpoints/
+  latest: latest.pt
+  best: best.pt
+  metadata: metadata.json
+  hf_repo: Panhapich/Tuna-TTS
+  upload_to_hub: true

@@ -8,6 +8,7 @@ scripts/test_tokenizer.py, scripts/test_model.py, a pilot run):
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -86,6 +87,11 @@ def main() -> int:
         max_seq_len=config["model"].get("max_seq_len", 8192),
         max_val_batches=config["training"].get("max_val_batches", 50),
         log_interval=config["training"].get("log_interval", 1),
+        hf_repo=config["checkpoint"].get("hf_repo"),
+        hf_upload_enabled=config["checkpoint"].get("upload_to_hub", False),
+        # Never put a real token in a config file -- read it from the
+        # environment (or a secret store like a Kaggle Secret) instead.
+        hf_token=os.environ.get("HF_TOKEN"),
     )
 
     run_training(training_config, tokenizer)
