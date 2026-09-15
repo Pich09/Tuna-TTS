@@ -105,11 +105,23 @@ def _no_sync_context(model, env, is_sync_step: bool):
 
 
 def build_optimizer(model, config: TrainingConfig, stages: dict):
-    """PLAN.md section 15: AdamW with two parameter groups (LoRA, Khmer embedding)."""
-    import torch
+    """PLAN.md section 15: AdamW with two parameter groups (LoRA, Khmer embedding).
 
-    lora_params = [p for n, p in model.named_parameters() if p.requires_grad and "lora_" in n]
-    embedding_params = [p for n, p in model.named_parameters() if p.requires_grad and n.startswith("embeddings.")]
+    Reads names off unwrap_model(model), not `model` directly: run_training
+    calls this AFTER wrap_model_for_distributed, and under DDP every
+    parameter name gets a "module." prefix, which silently breaks the
+    startswith("embeddings.") match below (the "lora_" in n check survives
+    since it's a substring match, not a prefix match) -- invisible on the
+    single-GPU path (no DDP, no prefix) but breaks under torchrun --nproc_per_node>1.
+    The underlying tensors are identical either way (DDP wraps, doesn't
+    clone), so this doesn't change which parameters the optimizer updates.
+    """
+    import torch
+    from training.distributed import unwrap_model
+
+    named_params = list(unwrap_model(model).named_parameters())
+    lora_params = [p for n, p in named_params if p.requires_grad and "lora_" in n]
+    embedding_params = [p for n, p in named_params if p.requires_grad and n.startswith("embeddings.")]
 
     if not lora_params:
         raise RuntimeError("no trainable LoRA parameters found -- did apply_tuna_lora run?")
