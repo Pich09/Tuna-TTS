@@ -361,6 +361,9 @@ def run_training(config: TrainingConfig, tokenizer) -> None:
 
     train_loader, val_loader, train_sampler = build_dataloaders(config, tokenizer, env)
 
+    if env.is_main_process:
+        print(f"Dataloaders ready -- starting training loop (max_steps={config.max_steps}).", flush=True)
+
     model.train()
     accum_step = 0
     accum_loss_sum = 0.0
@@ -419,16 +422,20 @@ def run_training(config: TrainingConfig, tokenizer) -> None:
             scheduler.step(global_step)
 
             # Progress line every `log_interval` optimizer steps (main
-            # process only, to avoid duplicate prints under DDP): this was
-            # previously silent between checkpoint_interval/
-            # validation_interval boundaries (every 200 / 1000 steps),
-            # which at gradient_accumulation=16 and this environment's
-            # per-step time left no way to tell a slow-but-healthy run
-            # apart from a hung one from the log alone.
+            # process only, to avoid duplicate prints under DDP), plus
+            # always at global_step==1 so a fresh run confirms it's alive
+            # immediately instead of going silent for log_interval *
+            # gradient_accumulation micro-batches (e.g. 20*8=160, which on
+            # Kaggle's T4s can be several minutes -- easy to mistake for a
+            # hang otherwise). This was previously silent between
+            # checkpoint_interval/validation_interval boundaries (every
+            # 200 / 1000 steps), which at gradient_accumulation=16 and
+            # this environment's per-step time left no way to tell a
+            # slow-but-healthy run apart from a hung one from the log alone.
             now = time.monotonic()
             step_seconds = now - step_start_time
             step_start_time = now
-            if env.is_main_process and global_step % config.log_interval == 0:
+            if env.is_main_process and (global_step == 1 or global_step % config.log_interval == 0):
                 avg_micro_loss = accum_loss_sum / config.gradient_accumulation
                 lr_lora = optimizer.param_groups[0]["lr"]
                 print(
